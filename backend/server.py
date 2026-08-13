@@ -186,8 +186,13 @@ async def emails(request: Request, account_email: Optional[str] = None, category
                 headers = detail.get("payload", {}).get("headers", [])
                 sender_raw = header_value(headers, "From") or "Unknown sender"
                 sender_email = sender_raw.split("<")[-1].replace(">", "").strip()
-                category_name = "Spam" if "SPAM" in detail.get("labelIds", []) else "Inbox"
-                if category and category != "All" and category_name != category: continue
+                labels = detail.get("labelIds", [])
+                if "SPAM" in labels: category_name = "Spam"
+                elif "CATEGORY_PROMOTIONS" in labels: category_name = "Promotions"
+                elif "CATEGORY_SOCIAL" in labels: category_name = "Social"
+                elif "CATEGORY_UPDATES" in labels: category_name = "Updates"
+                elif "CATEGORY_FORUMS" in labels: category_name = "Forums"
+                else: category_name = "Primary"
                 output.append(EmailItem(id=item["id"], account_email=account["email"], sender=sender_raw.split("<")[0].strip() or sender_email, sender_email=sender_email, subject=header_value(headers, "Subject") or "(no subject)", snippet=detail.get("snippet", ""), category=category_name, is_spam=category_name == "Spam", date=parse_date(header_value(headers, "Date"))))
         except Exception as exc:
             logger.warning("Could not read %s: %s", account["email"], exc)
