@@ -1,0 +1,49 @@
+{
+  "app_name": "Dynamic Multi-Gmail Aggregator & Cleanup Platform",
+  "archetype": "Swiss & High-Contrast / Minimalist Tech",
+  "typography": {
+    "heading": "Cabinet Grotesk, sans-serif",
+    "body": "Inter, sans-serif",
+    "mono": "JetBrains Mono, monospace"
+  },
+  "colors": {
+    "primary": "#0F172A",
+    "accent": "#2563EB",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "border": "#E2E8F0",
+    "text_main": "#090D16",
+    "text_muted": "#64748B",
+    "forbidden_colors": ["#7351B7", "#1B93A4"]
+  },
+  "visual_enhancers": {
+    "glassmorphism": "backdrop-blur-xl bg-white/85 border border-slate-200/60 shadow-sm",
+    "card_style": "bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-all duration-200",
+    "radius": "0.75rem"
+  },
+  "grids": {
+    "dashboard_grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+  },
+  "motion": {
+    "transition": "transition-all duration-200 ease-in-out",
+    "hover_lift": "hover:-translate-y-0.5"
+  },
+  "accessibility": {
+    "wcag_compliance": "AA minimum, APCA contrast standards",
+    "test_attributes": "All interactive elements must include data-testid attributes"
+  },
+  "image_urls": [
+    {
+      "category": "workspace_hero",
+      "url": "https://images.unsplash.com/photo-1639413665566-2f75adf7b7ca?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwyfHxhZXN0aGV0aWMlMjBtaW5pbWFsJTIwd29ya3NwYWNlJTIwYWJzdHJhY3R8ZW58MHx8fHwxNzg1MzAwNTI5fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Minimalist clean workspace setup for hero banner"
+    }
+  ],
+  "instructions_to_main_agent": [
+    "Ensure dynamic card creation when user links accounts via Google OAuth picker simulator.",
+    "Implement duplicate Gmail detection with Sonner toast notification alerts.",
+    "Owner admin panel protected by username Ramesh and password 212006, allowing email filtering, reading, and moving to Trash.",
+    "Use strict data-testid attributes on all buttons, forms, tabs, and interactive items.",
+    "Adhere strictly to minimalist typography and color palette, avoiding forbidden colors (#7351B7 and #1B93A4)."
+  ]
+}
