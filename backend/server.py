@@ -157,6 +157,24 @@ async def accounts():
     return docs
 
 
+@api.post("/accounts/refresh")
+async def refresh_accounts():
+    account_docs = await db.accounts.find({}, {"_id": 0}).to_list(100)
+    refreshed = []
+    for account in account_docs:
+        try:
+            service = await gmail_service(account["email"])
+            profile = service.users().getProfile(userId="me").execute()
+            unread = service.users().messages().list(userId="me", q="in:inbox is:unread", maxResults=1).execute().get("resultSizeEstimate", 0)
+            spam = service.users().messages().list(userId="me", q="in:spam", maxResults=1).execute().get("resultSizeEstimate", 0)
+            await db.accounts.update_one({"email": account["email"]}, {"$set": {"unread_count": unread, "spam_count": spam, "total_emails": profile.get("messagesTotal", 0), "status": "active"}})
+            refreshed.append(account["email"])
+        except Exception as exc:
+            logger.warning("Refresh failed for %s: %s", account["email"], exc)
+            await db.accounts.update_one({"email": account["email"]}, {"$set": {"status": "error"}})
+    return {"success": True, "refreshed": refreshed, "count": len(refreshed)}
+
+
 @api.delete("/accounts/{account_id}")
 async def unlink(account_id: str, request: Request):
     require_admin(request)
