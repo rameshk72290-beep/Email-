@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Trash2, Save, ArrowLeft, RotateCcw, ImageIcon, LogOut } from "lucide-react";
+import { Plus, Trash2, Save, ArrowLeft, RotateCcw, ImageIcon, LogOut, Users, ShoppingBag, Mail } from "lucide-react";
 import { defaultPackages, defaultSettings } from "../mock";
 import { useToast } from "../hooks/use-toast";
 import api from "../lib/api";
@@ -22,6 +22,8 @@ export default function AdminPanel() {
   const navigate = useNavigate();
   const [packages, setPackages] = useState([]);
   const [settings, setSettings] = useState(defaultSettings);
+  const [users, setUsers] = useState([]);
+  const [stats, setStats] = useState({ total_users: 0, total_orders: 0 });
   const token = localStorage.getItem("admin_token");
 
   useEffect(() => {
@@ -34,6 +36,11 @@ export default function AdminPanel() {
         setPackages(defaultPackages);
         setSettings(defaultSettings);
       }
+      try {
+        const u = await api.get("/admin/users", { headers: { "X-Admin-Token": token } });
+        setUsers(u.data.users || []);
+        setStats({ total_users: u.data.total_users || 0, total_orders: u.data.total_orders || 0 });
+      } catch (e) {}
     })();
   }, []);
 
@@ -111,6 +118,81 @@ export default function AdminPanel() {
       </div>
 
       <div className="max-w-[1100px] mx-auto px-4 py-8 space-y-8">
+        {/* Stats + Users */}
+        <section className="rounded-2xl bg-[#141127] border border-[#272142] p-5">
+          <h2 className="font-display text-lg font-bold text-white mb-4">Customers</h2>
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <div className="rounded-xl bg-[#1c1733] border border-[#2a2447] p-4 flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-[#8b5cf6]/15 flex items-center justify-center">
+                <Users className="w-5 h-5 text-[#8b5cf6]" />
+              </div>
+              <div>
+                <p className="text-2xl font-extrabold text-white leading-none">{stats.total_users}</p>
+                <p className="text-xs text-gray-400 mt-1">Total Users</p>
+              </div>
+            </div>
+            <div className="rounded-xl bg-[#1c1733] border border-[#2a2447] p-4 flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-[#ff7a1a]/15 flex items-center justify-center">
+                <ShoppingBag className="w-5 h-5 text-[#ff7a1a]" />
+              </div>
+              <div>
+                <p className="text-2xl font-extrabold text-white leading-none">{stats.total_orders}</p>
+                <p className="text-xs text-gray-400 mt-1">Total Orders</p>
+              </div>
+            </div>
+          </div>
+
+          {users.length === 0 ? (
+            <div className="text-center py-8 text-sm text-gray-500">
+              No users have signed in yet. Users who log in with Google will appear here.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 border-b border-[#272142]">
+                    <th className="py-2 pr-3 font-medium">User</th>
+                    <th className="py-2 pr-3 font-medium">Email</th>
+                    <th className="py-2 pr-3 font-medium">Joined</th>
+                    <th className="py-2 pr-3 font-medium text-right">Orders</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.user_id} className="border-b border-[#1e1a34] last:border-0">
+                      <td className="py-3 pr-3">
+                        <div className="flex items-center gap-2">
+                          {u.picture ? (
+                            <img src={u.picture} alt="" className="w-8 h-8 rounded-full object-cover" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-[#8b5cf6] flex items-center justify-center text-white text-xs font-bold">
+                              {(u.name || u.email || "U").charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <span className="text-gray-200 font-medium">{u.name || "\u2014"}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 pr-3">
+                        <span className="flex items-center gap-1.5 text-gray-300">
+                          <Mail className="w-3.5 h-3.5 text-gray-500" /> {u.email}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-3 text-gray-400">
+                        {u.created_at ? new Date(u.created_at).toLocaleDateString() : "\u2014"}
+                      </td>
+                      <td className="py-3 pr-3 text-right">
+                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-[#8b5cf6]/15 text-[#c4b5fd]">
+                          {u.orders}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
         <section className="rounded-2xl bg-[#141127] border border-[#272142] p-5">
           <h2 className="font-display text-lg font-bold text-white mb-4">Store Settings</h2>
           <div className="flex gap-4 items-start">

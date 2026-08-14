@@ -220,6 +220,24 @@ async def my_orders(user=Depends(get_current_user)):
             d["created_at"] = d["created_at"].isoformat()
     return docs
 
+# ---------------- Admin: users insight ----------------
+@api_router.get("/admin/users")
+async def admin_users(_: bool = Depends(verify_admin)):
+    users = await db.users.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    total_orders = await db.orders.count_documents({})
+    result = []
+    for u in users:
+        oc = await db.orders.count_documents({"user_id": u["user_id"]})
+        ca = u.get("created_at")
+        if isinstance(ca, datetime):
+            ca = ca.isoformat()
+        result.append({
+            "user_id": u["user_id"], "email": u.get("email"),
+            "name": u.get("name"), "picture": u.get("picture"),
+            "created_at": ca, "orders": oc,
+        })
+    return {"total_users": len(result), "total_orders": total_orders, "users": result}
+
 app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
