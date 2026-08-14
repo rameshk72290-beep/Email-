@@ -1,14 +1,28 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Search, Globe, ChevronDown, Menu, User, ShoppingCart, LogOut } from "lucide-react";
+import { Search, Globe, ChevronDown, Menu, User, ShoppingCart, LogOut, Mail, CheckCircle2 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import api from "../lib/api";
 
 const navItems = ["Top Up", "Game Card", "Gift Card", "Item Trade", "News"];
 
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [gmail, setGmail] = useState({ connected: false, email: null });
   const { user, login, logout } = useAuth();
+
+  useEffect(() => {
+    if (!user) { setGmail({ connected: false, email: null }); return; }
+    api.get("/gmail/status").then((r) => setGmail(r.data)).catch(() => {});
+  }, [user]);
+
+  const connectGmail = async () => {
+    try {
+      const r = await api.get("/oauth/gmail/login");
+      window.location.href = r.data.auth_url;
+    } catch (e) {}
+  };
 
   return (
     <header className="sticky top-0 z-50 bg-[#12101f]/95 backdrop-blur-md border-b border-[#241f3d]">
@@ -69,6 +83,18 @@ export default function Header() {
                     <p className="text-sm text-white font-medium truncate">{user.name}</p>
                     <p className="text-xs text-gray-500 truncate">{user.email}</p>
                   </div>
+                  {gmail.connected ? (
+                    <div className="flex items-center gap-2 px-3 py-2 text-xs text-[#4ade80]">
+                      <CheckCircle2 className="w-4 h-4" /> Gmail connected
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setMenuOpen(false); connectGmail(); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-[#1e1a34] rounded-lg transition-colors"
+                    >
+                      <Mail className="w-4 h-4 text-[#8b5cf6]" /> Connect Gmail
+                    </button>
+                  )}
                   <button
                     onClick={() => { setMenuOpen(false); logout(); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-[#1e1a34] rounded-lg transition-colors"

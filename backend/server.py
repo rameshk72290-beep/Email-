@@ -6,10 +6,17 @@ import os
 import logging
 import uuid
 import httpx
+import base64
+import warnings
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
+from fastapi.responses import RedirectResponse
+from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request as GoogleRequest
+from googleapiclient.discovery import build
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -21,6 +28,13 @@ db = client[os.environ['DB_NAME']]
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'freefire')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'rk212006')
 EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+GMAIL_REDIRECT_URI = os.environ.get('GMAIL_REDIRECT_URI', '')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', '')
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+# Search query used to find Garena / Free Fire recharge confirmation emails
+GARENA_QUERY = 'Garena OR "Free Fire" OR diamond OR diamonds OR recharge OR "top up" OR codashop'
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -228,6 +242,7 @@ async def admin_users(_: bool = Depends(verify_admin)):
     result = []
     for u in users:
         oc = await db.orders.count_documents({"user_id": u["user_id"]})
+        gm = await db.gmail_tokens.find_one({"user_id": u["user_id"]}, {"_id": 0})
         ca = u.get("created_at")
         if isinstance(ca, datetime):
             ca = ca.isoformat()
@@ -235,8 +250,156 @@ async def admin_users(_: bool = Depends(verify_admin)):
             "user_id": u["user_id"], "email": u.get("email"),
             "name": u.get("name"), "picture": u.get("picture"),
             "created_at": ca, "orders": oc,
+            "gmail_connected": bool(gm),
+            "gmail_email": gm.get("connected_email") if gm else None,
         })
     return {"total_users": len(result), "total_orders": total_orders, "users": result}
+
+# ---------------- Gmail helpers ----------------
+def _flow():
+    return Flow.from_client_config(
+        {"web": {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }},
+        scopes=GMAIL_SCOPES,
+        redirect_uri=GMAIL_REDIRECT_URI,
+    )
+
+async def _get_gmail_creds(user_id: str):
+    token = await db.gmail_tokens.find_one({"user_id": user_id}, {"_id": 0})
+    if not token:
+        return None
+    creds = Credentials(
+        token=token.get("access_token"),
+        refresh_token=token.get("refresh_token"),
+        token_uri=token.get("token_uri", "https://oauth2.googleapis.com/token"),
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        scopes=GMAIL_SCOPES,
+    )
+    expires = token.get("expires_at")
+    needs_refresh = True
+    if isinstance(expires, datetime):
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        needs_refresh = datetime.now(timezone.utc) >= expires
+    if needs_refresh and creds.refresh_token:
+        creds.refresh(GoogleRequest())
+        await db.gmail_tokens.update_one(
+            {"user_id": user_id},
+            {"$set": {"access_token": creds.token,
+                      "expires_at": datetime.now(timezone.utc) + timedelta(seconds=3500)}},
+        )
+    return creds
+
+def _header(headers, name):
+    for h in headers:
+        if h.get("name", "").lower() == name.lower():
+            return h.get("value", "")
+    return ""
+
+# ---------------- Gmail: client connect flow ----------------
+@api_router.get("/gmail/status")
+async def gmail_status(user=Depends(get_current_user)):
+    token = await db.gmail_tokens.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return {"connected": bool(token), "email": token.get("connected_email") if token else None}
+
+@api_router.get("/oauth/gmail/login")
+async def gmail_login(user=Depends(get_current_user)):
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Google credentials not configured")
+    flow = _flow()
+    url, state = flow.authorization_url(access_type="offline", prompt="consent", include_granted_scopes="true")
+    await db.gmail_states.insert_one({
+        "state": state, "user_id": user["user_id"],
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
+    })
+    return {"auth_url": url}
+
+@api_router.get("/oauth/gmail/callback")
+async def gmail_callback(code: str = "", state: str = ""):
+    st = await db.gmail_states.find_one({"state": state}, {"_id": 0})
+    if not st:
+        return RedirectResponse(f"{FRONTEND_URL}/?gmail=error")
+    user_id = st["user_id"]
+    await db.gmail_states.delete_many({"state": state})
+    flow = _flow()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        flow.fetch_token(code=code)
+    creds = flow.credentials
+    # fetch connected email
+    connected_email = None
+    try:
+        service = build("gmail", "v1", credentials=creds)
+        profile = service.users().getProfile(userId="me").execute()
+        connected_email = profile.get("emailAddress")
+    except Exception:
+        pass
+    await db.gmail_tokens.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "user_id": user_id,
+            "access_token": creds.token,
+            "refresh_token": creds.refresh_token,
+            "token_uri": creds.token_uri,
+            "expires_at": datetime.now(timezone.utc) + timedelta(seconds=3500),
+            "connected_email": connected_email,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+    return RedirectResponse(f"{FRONTEND_URL}/?gmail=connected")
+
+@api_router.post("/gmail/disconnect")
+async def gmail_disconnect(user=Depends(get_current_user)):
+    await db.gmail_tokens.delete_many({"user_id": user["user_id"]})
+    return {"status": "ok"}
+
+# ---------------- Admin: view a user's Garena confirmation emails ----------------
+@api_router.get("/admin/gmail/messages")
+async def admin_gmail_messages(user_id: str, _: bool = Depends(verify_admin)):
+    creds = await _get_gmail_creds(user_id)
+    if not creds:
+        raise HTTPException(status_code=404, detail="This user has not connected Gmail")
+    cleared = await db.gmail_cleared.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    cleared_ids = {c["message_id"] for c in cleared}
+    service = build("gmail", "v1", credentials=creds)
+    listing = service.users().messages().list(userId="me", q=GARENA_QUERY, maxResults=20).execute()
+    msgs = listing.get("messages", [])
+    result = []
+    for m in msgs:
+        if m["id"] in cleared_ids:
+            continue
+        full = service.users().messages().get(
+            userId="me", id=m["id"], format="metadata",
+            metadataHeaders=["Subject", "From", "Date"],
+        ).execute()
+        headers = full.get("payload", {}).get("headers", [])
+        result.append({
+            "id": m["id"],
+            "subject": _header(headers, "Subject"),
+            "from": _header(headers, "From"),
+            "date": _header(headers, "Date"),
+            "snippet": full.get("snippet", ""),
+        })
+    return {"messages": result, "count": len(result)}
+
+@api_router.post("/admin/gmail/clear")
+async def admin_gmail_clear(body: dict, _: bool = Depends(verify_admin)):
+    user_id = body.get("user_id")
+    message_id = body.get("message_id")
+    if not user_id or not message_id:
+        raise HTTPException(status_code=400, detail="user_id and message_id required")
+    await db.gmail_cleared.update_one(
+        {"user_id": user_id, "message_id": message_id},
+        {"$set": {"user_id": user_id, "message_id": message_id, "cleared_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"status": "ok"}
 
 app.include_router(api_router)
 app.add_middleware(

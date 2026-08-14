@@ -175,6 +175,90 @@ backend:
         -working: true
         -agent: "testing"
         -comment: "✅ PASSED - POST /orders without auth correctly returns 401. With valid Bearer token creates order and returns correct structure (order_id, user_id, package_name, uid, quantity, total). GET /orders/me without auth correctly returns 401. With valid Bearer token returns list of orders. All order endpoints working correctly with proper auth protection."
+  - task: "GET /api/gmail/status (client auth)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Returns {connected: false, email: null} when no gmail_tokens exist. Requires Bearer auth."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - Without auth correctly returns 401. With valid Bearer token returns {connected: false, email: null} when user hasn't connected Gmail. Endpoint structure and auth protection working correctly."
+  - task: "GET /api/oauth/gmail/login (client auth)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Returns {auth_url} containing accounts.google.com and client_id 832159397191. Requires Bearer auth."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - Without auth correctly returns 401. With valid Bearer token returns {auth_url} where auth_url contains 'accounts.google.com' and client_id '832159397191'. OAuth flow initiation working correctly."
+  - task: "POST /api/gmail/disconnect (client auth)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Returns {status: ok}. Requires Bearer auth."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - Without auth correctly returns 401. With valid Bearer token returns {status: ok}. Disconnect endpoint working correctly."
+  - task: "GET /api/admin/gmail/messages (admin auth)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Returns 404 when user hasn't connected Gmail. Requires X-Admin-Token header."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - Without admin token correctly returns 401. With valid X-Admin-Token returns 404 when user hasn't connected Gmail (expected behavior). Admin endpoint auth and error handling working correctly."
+  - task: "POST /api/admin/gmail/clear (admin auth)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Requires {user_id, message_id} in body. Returns {status: ok}. Requires X-Admin-Token header."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - Without admin token correctly returns 401. With admin token but missing fields correctly returns 400. With valid admin token and complete body {user_id, message_id} returns {status: ok}. All validation and auth working correctly."
+  - task: "GET /api/admin/users includes gmail_connected field"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Each user object should include gmail_connected boolean field."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - GET /api/admin/users with valid X-Admin-Token returns user list where each user object includes 'gmail_connected' boolean field. Field correctly shows false for users who haven't connected Gmail. Feature working as expected."
 
 frontend:
   - task: "Store page + Admin panel + Google login UI"
@@ -192,7 +276,7 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 1
+  test_sequence: 2
   run_ui: false
 
 test_plan:
@@ -204,5 +288,9 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: "Please test all backend endpoints. Admin creds: username 'freefire', password 'rk212006'. For auth-gated endpoints (auth/me, orders), Google OAuth session cannot be created via curl; instead insert a user + user_sessions doc via mongosh (see /app/auth_testing.md) and use the session_token as Bearer. Verify admin protection (401 without/with wrong token). Verify GET packages/settings seed defaults."
+    -agent: "main"
+    -message: "NEW Gmail feature added. Please test these NEW endpoints: (1) GET /api/gmail/status (client auth via Bearer session_token) -> returns {connected:false} when no gmail_tokens doc. (2) GET /api/oauth/gmail/login (client auth) -> returns {auth_url} containing accounts.google.com and the client_id; verify 401 without auth. (3) POST /api/gmail/disconnect (client auth) -> ok. (4) GET /api/admin/gmail/messages?user_id=<someid> (X-Admin-Token) -> 404 when that user has NOT connected gmail; 401 without admin token. (5) POST /api/admin/gmail/clear (X-Admin-Token) body {user_id, message_id} -> ok, and 401 without admin token; 400 when missing fields. NOTE: actual Gmail inbox reading requires a real Google consent (test-user), which cannot be automated via curl — only test structure/auth as above. Use a mongosh-inserted user+session for client-auth tests. Also confirm GET /api/admin/users now returns gmail_connected flag."
     -agent: "testing"
     -message: "✅ ALL BACKEND TESTS PASSED (15/15). Comprehensive testing completed: (1) GET /api/packages - returns 8 packages with correct structure, seeding works. (2) GET /api/settings - returns settings with correct structure, seeding works. (3) POST /api/admin/login - correct credentials return token, wrong credentials return 401. (4) PUT /admin/packages - 401 without token, updates and persists with valid token. (5) PUT /admin/settings - 401 without token, updates and persists with valid token. (6) GET /auth/me - 401 without/invalid token, returns user data with valid Bearer token. (7) POST /orders - 401 without auth, creates order with valid auth. (8) GET /orders/me - 401 without auth, returns orders with valid auth. All endpoints working correctly. Default packages/settings restored after testing. Test user cleaned up. Backend is production-ready."
+    -agent: "testing"
+    -message: "✅ ALL GMAIL BACKEND TESTS PASSED (27/27 total). Gmail feature testing completed: (1) GET /api/gmail/status - 401 without auth, returns {connected: false, email: null} with valid Bearer token when no gmail_tokens exist. (2) GET /api/oauth/gmail/login - 401 without auth, returns {auth_url} containing 'accounts.google.com' and client_id '832159397191' with valid Bearer token. (3) POST /api/gmail/disconnect - 401 without auth, returns {status: ok} with valid Bearer token. (4) GET /api/admin/gmail/messages?user_id=<id> - 401 without X-Admin-Token, returns 404 with valid admin token when user hasn't connected Gmail (expected). (5) POST /api/admin/gmail/clear - 401 without admin token, 400 with missing fields, returns {status: ok} with valid admin token and complete body. (6) GET /api/admin/users - each user object includes 'gmail_connected' boolean field. All Gmail endpoints working correctly with proper auth protection and validation. Test user cleaned up. NOTE: Actual Gmail inbox reading requires real Google OAuth consent flow and cannot be automated via curl - only structure/auth tested as requested."

@@ -7,14 +7,27 @@ import Reviews from "../components/Reviews";
 import InfoSections from "../components/InfoSections";
 import { defaultPackages, defaultSettings } from "../mock";
 import api from "../lib/api";
+import { useToast } from "../hooks/use-toast";
 import { ChevronRight } from "lucide-react";
 
 export default function HomePage() {
+  const { toast } = useToast();
   const [packages, setPackages] = useState(defaultPackages);
   const [settings, setSettings] = useState(defaultSettings);
   const [selected, setSelected] = useState(defaultPackages[0]);
   const [uid, setUid] = useState("");
   const [qty, setQty] = useState(1);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("gmail") === "connected") {
+      toast({ title: "Gmail connected \u2705", description: "You can now receive delivery confirmations verification." });
+      window.history.replaceState(null, "", window.location.pathname);
+    } else if (params.get("gmail") === "error") {
+      toast({ title: "Gmail connection failed", description: "Please try connecting again." });
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     (async () => {

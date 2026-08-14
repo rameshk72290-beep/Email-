@@ -578,6 +578,312 @@ def restore_default_settings(admin_token):
     except Exception as e:
         print(f"⚠️  Error restoring settings: {str(e)}")
 
+def test_gmail_status(session_token):
+    """Test GET /api/gmail/status with and without auth"""
+    print("\n" + "="*80)
+    print("TEST 8: GET /api/gmail/status")
+    print("="*80)
+    
+    # Test without auth
+    try:
+        response = requests.get(f"{BASE_URL}/gmail/status", timeout=10)
+        
+        if response.status_code == 401:
+            log_test("GET /gmail/status (no auth)", True, "Correctly returned 401")
+        else:
+            log_test("GET /gmail/status (no auth)", False, f"Expected 401, got {response.status_code}")
+        
+    except Exception as e:
+        log_test("GET /gmail/status (no auth)", False, f"Exception: {str(e)}")
+    
+    # Test with valid token (should return connected: false when no gmail_tokens exist)
+    if not session_token:
+        log_test("GET /gmail/status (with auth)", False, "No session token available")
+        return
+    
+    try:
+        response = requests.get(
+            f"{BASE_URL}/gmail/status",
+            headers={"Authorization": f"Bearer {session_token}"},
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            log_test("GET /gmail/status (with auth)", False, f"Status code: {response.status_code}, Response: {response.text}")
+            return
+        
+        data = response.json()
+        
+        if "connected" not in data or "email" not in data:
+            log_test("GET /gmail/status (with auth)", False, f"Missing fields in response: {data}")
+            return
+        
+        if data["connected"] == False and data["email"] is None:
+            log_test("GET /gmail/status (with auth)", True, f"Correctly returned connected=false, email=null")
+        else:
+            log_test("GET /gmail/status (with auth)", False, f"Expected connected=false, email=null, got {data}")
+        
+    except Exception as e:
+        log_test("GET /gmail/status (with auth)", False, f"Exception: {str(e)}")
+
+def test_gmail_login(session_token):
+    """Test GET /api/oauth/gmail/login with and without auth"""
+    print("\n" + "="*80)
+    print("TEST 9: GET /api/oauth/gmail/login")
+    print("="*80)
+    
+    # Test without auth
+    try:
+        response = requests.get(f"{BASE_URL}/oauth/gmail/login", timeout=10)
+        
+        if response.status_code == 401:
+            log_test("GET /oauth/gmail/login (no auth)", True, "Correctly returned 401")
+        else:
+            log_test("GET /oauth/gmail/login (no auth)", False, f"Expected 401, got {response.status_code}")
+        
+    except Exception as e:
+        log_test("GET /oauth/gmail/login (no auth)", False, f"Exception: {str(e)}")
+    
+    # Test with valid token
+    if not session_token:
+        log_test("GET /oauth/gmail/login (with auth)", False, "No session token available")
+        return
+    
+    try:
+        response = requests.get(
+            f"{BASE_URL}/oauth/gmail/login",
+            headers={"Authorization": f"Bearer {session_token}"},
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            log_test("GET /oauth/gmail/login (with auth)", False, f"Status code: {response.status_code}, Response: {response.text}")
+            return
+        
+        data = response.json()
+        
+        if "auth_url" not in data:
+            log_test("GET /oauth/gmail/login (with auth)", False, f"Missing auth_url in response: {data}")
+            return
+        
+        auth_url = data["auth_url"]
+        
+        # Verify auth_url contains accounts.google.com and client_id
+        if "accounts.google.com" not in auth_url:
+            log_test("GET /oauth/gmail/login (with auth)", False, f"auth_url doesn't contain accounts.google.com: {auth_url}")
+            return
+        
+        if "832159397191" not in auth_url:
+            log_test("GET /oauth/gmail/login (with auth)", False, f"auth_url doesn't contain client_id 832159397191: {auth_url}")
+            return
+        
+        log_test("GET /oauth/gmail/login (with auth)", True, f"Correctly returned auth_url with accounts.google.com and client_id")
+        
+    except Exception as e:
+        log_test("GET /oauth/gmail/login (with auth)", False, f"Exception: {str(e)}")
+
+def test_gmail_disconnect(session_token):
+    """Test POST /api/gmail/disconnect with and without auth"""
+    print("\n" + "="*80)
+    print("TEST 10: POST /api/gmail/disconnect")
+    print("="*80)
+    
+    # Test without auth
+    try:
+        response = requests.post(f"{BASE_URL}/gmail/disconnect", timeout=10)
+        
+        if response.status_code == 401:
+            log_test("POST /gmail/disconnect (no auth)", True, "Correctly returned 401")
+        else:
+            log_test("POST /gmail/disconnect (no auth)", False, f"Expected 401, got {response.status_code}")
+        
+    except Exception as e:
+        log_test("POST /gmail/disconnect (no auth)", False, f"Exception: {str(e)}")
+    
+    # Test with valid token
+    if not session_token:
+        log_test("POST /gmail/disconnect (with auth)", False, "No session token available")
+        return
+    
+    try:
+        response = requests.post(
+            f"{BASE_URL}/gmail/disconnect",
+            headers={"Authorization": f"Bearer {session_token}"},
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            log_test("POST /gmail/disconnect (with auth)", False, f"Status code: {response.status_code}, Response: {response.text}")
+            return
+        
+        data = response.json()
+        
+        if data.get("status") == "ok":
+            log_test("POST /gmail/disconnect (with auth)", True, f"Correctly returned status=ok")
+        else:
+            log_test("POST /gmail/disconnect (with auth)", False, f"Expected status=ok, got {data}")
+        
+    except Exception as e:
+        log_test("POST /gmail/disconnect (with auth)", False, f"Exception: {str(e)}")
+
+def test_admin_gmail_messages(admin_token, user_id):
+    """Test GET /api/admin/gmail/messages with and without admin token"""
+    print("\n" + "="*80)
+    print("TEST 11: GET /api/admin/gmail/messages")
+    print("="*80)
+    
+    # Test without admin token
+    try:
+        response = requests.get(f"{BASE_URL}/admin/gmail/messages?user_id={user_id}", timeout=10)
+        
+        if response.status_code == 401:
+            log_test("GET /admin/gmail/messages (no admin token)", True, "Correctly returned 401")
+        else:
+            log_test("GET /admin/gmail/messages (no admin token)", False, f"Expected 401, got {response.status_code}")
+        
+    except Exception as e:
+        log_test("GET /admin/gmail/messages (no admin token)", False, f"Exception: {str(e)}")
+    
+    # Test with admin token (should return 404 when user hasn't connected gmail)
+    if not admin_token:
+        log_test("GET /admin/gmail/messages (with admin token)", False, "No admin token available")
+        return
+    
+    if not user_id:
+        log_test("GET /admin/gmail/messages (with admin token)", False, "No user_id available")
+        return
+    
+    try:
+        response = requests.get(
+            f"{BASE_URL}/admin/gmail/messages?user_id={user_id}",
+            headers={"X-Admin-Token": admin_token},
+            timeout=10
+        )
+        
+        if response.status_code == 404:
+            log_test("GET /admin/gmail/messages (with admin token)", True, f"Correctly returned 404 (user hasn't connected gmail)")
+        else:
+            log_test("GET /admin/gmail/messages (with admin token)", False, f"Expected 404, got {response.status_code}, Response: {response.text}")
+        
+    except Exception as e:
+        log_test("GET /admin/gmail/messages (with admin token)", False, f"Exception: {str(e)}")
+
+def test_admin_gmail_clear(admin_token):
+    """Test POST /api/admin/gmail/clear with and without admin token"""
+    print("\n" + "="*80)
+    print("TEST 12: POST /api/admin/gmail/clear")
+    print("="*80)
+    
+    # Test without admin token
+    try:
+        response = requests.post(
+            f"{BASE_URL}/admin/gmail/clear",
+            json={"user_id": "test_user", "message_id": "test_msg"},
+            timeout=10
+        )
+        
+        if response.status_code == 401:
+            log_test("POST /admin/gmail/clear (no admin token)", True, "Correctly returned 401")
+        else:
+            log_test("POST /admin/gmail/clear (no admin token)", False, f"Expected 401, got {response.status_code}")
+        
+    except Exception as e:
+        log_test("POST /admin/gmail/clear (no admin token)", False, f"Exception: {str(e)}")
+    
+    # Test with admin token but missing fields
+    if not admin_token:
+        log_test("POST /admin/gmail/clear (missing fields)", False, "No admin token available")
+        log_test("POST /admin/gmail/clear (with admin token)", False, "No admin token available")
+        return
+    
+    try:
+        response = requests.post(
+            f"{BASE_URL}/admin/gmail/clear",
+            json={},
+            headers={"X-Admin-Token": admin_token},
+            timeout=10
+        )
+        
+        if response.status_code == 400:
+            log_test("POST /admin/gmail/clear (missing fields)", True, "Correctly returned 400")
+        else:
+            log_test("POST /admin/gmail/clear (missing fields)", False, f"Expected 400, got {response.status_code}")
+        
+    except Exception as e:
+        log_test("POST /admin/gmail/clear (missing fields)", False, f"Exception: {str(e)}")
+    
+    # Test with admin token and valid fields
+    try:
+        response = requests.post(
+            f"{BASE_URL}/admin/gmail/clear",
+            json={"user_id": "test_user", "message_id": "test_msg"},
+            headers={"X-Admin-Token": admin_token},
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            log_test("POST /admin/gmail/clear (with admin token)", False, f"Status code: {response.status_code}, Response: {response.text}")
+            return
+        
+        data = response.json()
+        
+        if data.get("status") == "ok":
+            log_test("POST /admin/gmail/clear (with admin token)", True, f"Correctly returned status=ok")
+        else:
+            log_test("POST /admin/gmail/clear (with admin token)", False, f"Expected status=ok, got {data}")
+        
+    except Exception as e:
+        log_test("POST /admin/gmail/clear (with admin token)", False, f"Exception: {str(e)}")
+
+def test_admin_users_gmail_field(admin_token):
+    """Test GET /api/admin/users includes gmail_connected field"""
+    print("\n" + "="*80)
+    print("TEST 13: GET /api/admin/users (gmail_connected field)")
+    print("="*80)
+    
+    if not admin_token:
+        log_test("GET /admin/users (gmail_connected field)", False, "No admin token available")
+        return
+    
+    try:
+        response = requests.get(
+            f"{BASE_URL}/admin/users",
+            headers={"X-Admin-Token": admin_token},
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            log_test("GET /admin/users (gmail_connected field)", False, f"Status code: {response.status_code}, Response: {response.text}")
+            return
+        
+        data = response.json()
+        
+        if "users" not in data:
+            log_test("GET /admin/users (gmail_connected field)", False, f"Missing 'users' field in response")
+            return
+        
+        users = data["users"]
+        
+        if len(users) == 0:
+            log_test("GET /admin/users (gmail_connected field)", True, f"No users to check, but endpoint works")
+            return
+        
+        # Check if first user has gmail_connected field
+        first_user = users[0]
+        
+        if "gmail_connected" not in first_user:
+            log_test("GET /admin/users (gmail_connected field)", False, f"Missing 'gmail_connected' field in user object: {first_user}")
+            return
+        
+        if not isinstance(first_user["gmail_connected"], bool):
+            log_test("GET /admin/users (gmail_connected field)", False, f"gmail_connected is not a boolean: {first_user['gmail_connected']}")
+            return
+        
+        log_test("GET /admin/users (gmail_connected field)", True, f"All users include gmail_connected boolean field")
+        
+    except Exception as e:
+        log_test("GET /admin/users (gmail_connected field)", False, f"Exception: {str(e)}")
+
 def print_summary():
     """Print test summary"""
     print("\n" + "="*80)
@@ -631,6 +937,17 @@ def main():
         if session_token:
             test_auth_me(session_token)
             test_orders(session_token)
+            
+            # Test NEW Gmail endpoints
+            test_gmail_status(session_token)
+            test_gmail_login(session_token)
+            test_gmail_disconnect(session_token)
+        
+        # Test admin Gmail endpoints
+        if admin_token:
+            test_admin_gmail_messages(admin_token, user_id)
+            test_admin_gmail_clear(admin_token)
+            test_admin_users_gmail_field(admin_token)
         
     finally:
         # Cleanup

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Trash2, Save, ArrowLeft, RotateCcw, ImageIcon, LogOut, Users, ShoppingBag, Mail } from "lucide-react";
+import { Plus, Trash2, Save, ArrowLeft, RotateCcw, ImageIcon, LogOut, Users, ShoppingBag, Mail, Inbox, RefreshCw, CheckCircle2 } from "lucide-react";
 import { defaultPackages, defaultSettings } from "../mock";
 import { useToast } from "../hooks/use-toast";
 import api from "../lib/api";
@@ -24,7 +24,37 @@ export default function AdminPanel() {
   const [settings, setSettings] = useState(defaultSettings);
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState({ total_users: 0, total_orders: 0 });
+  const [gmailUserId, setGmailUserId] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [msgLoading, setMsgLoading] = useState(false);
+  const [msgError, setMsgError] = useState("");
   const token = localStorage.getItem("admin_token");
+  const adminHeaders = { "X-Admin-Token": token };
+
+  const connectedUsers = users.filter((u) => u.gmail_connected);
+
+  const loadMessages = async (uid) => {
+    if (!uid) return;
+    setMsgLoading(true);
+    setMsgError("");
+    setMessages([]);
+    try {
+      const r = await api.get(`/admin/gmail/messages?user_id=${uid}`, { headers: adminHeaders });
+      setMessages(r.data.messages || []);
+      if (!r.data.messages?.length) setMsgError("No Garena/Free Fire confirmation emails found in this inbox.");
+    } catch (e) {
+      setMsgError(e?.response?.data?.detail || "Could not load emails.");
+    } finally {
+      setMsgLoading(false);
+    }
+  };
+
+  const clearMessage = async (messageId) => {
+    try {
+      await api.post("/admin/gmail/clear", { user_id: gmailUserId, message_id: messageId }, { headers: adminHeaders });
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    } catch (e) {}
+  };
 
   useEffect(() => {
     (async () => {
@@ -175,6 +205,11 @@ export default function AdminPanel() {
                       <td className="py-3 pr-3">
                         <span className="flex items-center gap-1.5 text-gray-300">
                           <Mail className="w-3.5 h-3.5 text-gray-500" /> {u.email}
+                          {u.gmail_connected && (
+                            <span className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#4ade80]/15 text-[#4ade80]">
+                              <CheckCircle2 className="w-3 h-3" /> Gmail
+                            </span>
+                          )}
                         </span>
                       </td>
                       <td className="py-3 pr-3 text-gray-400">
@@ -190,6 +225,76 @@ export default function AdminPanel() {
                 </tbody>
               </table>
             </div>
+          )}
+        </section>
+
+        {/* Garena Delivery Confirmation (Gmail) */}
+        <section className="rounded-2xl bg-[#141127] border border-[#272142] p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <Inbox className="w-5 h-5 text-[#8b5cf6]" />
+            <h2 className="font-display text-lg font-bold text-white">Garena Delivery Confirmation</h2>
+          </div>
+          <p className="text-sm text-gray-400 mb-4">
+            After a diamond giveaway, pick a client who connected their Gmail to view the Garena confirmation email
+            in their inbox and mark it cleared. Only clients who granted permission appear here.
+          </p>
+
+          {connectedUsers.length === 0 ? (
+            <div className="text-center py-8 text-sm text-gray-500">
+              No client has connected their Gmail yet. Ask the client to sign in and tap
+              &nbsp;<span className="text-[#c4b5fd]">Connect Gmail</span>&nbsp; from their profile menu.
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                <select
+                  value={gmailUserId}
+                  onChange={(e) => { setGmailUserId(e.target.value); loadMessages(e.target.value); }}
+                  className="flex-1 bg-[#120f28] border border-[#2c2748] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-[#8b5cf6]"
+                >
+                  <option value="">Select a client's Gmail...</option>
+                  {connectedUsers.map((u) => (
+                    <option key={u.user_id} value={u.user_id}>
+                      {u.gmail_email || u.email} {u.name ? `(${u.name})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => loadMessages(gmailUserId)}
+                  disabled={!gmailUserId || msgLoading}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium text-[#c4b5fd] border border-[#8b5cf6]/40 bg-[#8b5cf6]/10 hover:bg-[#8b5cf6]/20 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${msgLoading ? "animate-spin" : ""}`} /> Refresh
+                </button>
+              </div>
+
+              {msgLoading && <p className="text-sm text-gray-400 py-4">Loading inbox...</p>}
+              {!msgLoading && msgError && <p className="text-sm text-gray-500 py-4">{msgError}</p>}
+
+              <div className="space-y-3">
+                {messages.map((m) => (
+                  <div key={m.id} className="rounded-xl bg-[#1c1733] border border-[#2a2447] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <CheckCircle2 className="w-4 h-4 text-[#4ade80] shrink-0" />
+                          <p className="text-sm font-semibold text-white truncate">{m.subject || "(no subject)"}</p>
+                        </div>
+                        <p className="text-xs text-gray-400 truncate">From: {m.from}</p>
+                        <p className="text-xs text-gray-500 mb-2">{m.date}</p>
+                        <p className="text-sm text-gray-300 leading-relaxed">{m.snippet}</p>
+                      </div>
+                      <button
+                        onClick={() => clearMessage(m.id)}
+                        className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300 border border-[#2c2748] hover:bg-[#1e1a34] transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Clear
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </section>
 
