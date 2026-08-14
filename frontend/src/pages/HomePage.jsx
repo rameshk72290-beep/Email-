@@ -5,33 +5,38 @@ import ProductSection from "../components/ProductSection";
 import OrderPanel from "../components/OrderPanel";
 import Reviews from "../components/Reviews";
 import InfoSections from "../components/InfoSections";
-import { loadPackages, loadSettings } from "../mock";
+import { defaultPackages, defaultSettings } from "../mock";
+import api from "../lib/api";
 import { ChevronRight } from "lucide-react";
 
 export default function HomePage() {
-  const [packages, setPackages] = useState([]);
-  const [settings, setSettings] = useState(loadSettings());
-  const [selected, setSelected] = useState(null);
+  const [packages, setPackages] = useState(defaultPackages);
+  const [settings, setSettings] = useState(defaultSettings);
+  const [selected, setSelected] = useState(defaultPackages[0]);
   const [uid, setUid] = useState("");
   const [qty, setQty] = useState(1);
 
   useEffect(() => {
-    const pkgs = loadPackages();
-    setPackages(pkgs);
-    setSettings(loadSettings());
-    if (pkgs.length) setSelected(pkgs[0]);
+    (async () => {
+      try {
+        const [pRes, sRes] = await Promise.all([api.get("/packages"), api.get("/settings")]);
+        if (Array.isArray(pRes.data) && pRes.data.length) {
+          setPackages(pRes.data);
+          setSelected(pRes.data[0]);
+        }
+        if (sRes.data) setSettings(sRes.data);
+      } catch (e) {
+        // fallback to mock defaults already set
+      }
+    })();
   }, []);
 
   return (
     <div className="min-h-screen bg-[#0e0b1a]">
       <Header />
-
-      {/* decorative top glow */}
       <div className="relative">
         <div className="absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-[#1c1440] to-transparent pointer-events-none" />
-
         <main className="relative max-w-[1240px] mx-auto px-4 pt-6 pb-12">
-          {/* breadcrumb */}
           <nav className="flex items-center gap-1.5 text-sm text-gray-400 mb-6">
             <button className="hover:text-white transition-colors">Home</button>
             <ChevronRight className="w-4 h-4" />
@@ -47,13 +52,7 @@ export default function HomePage() {
               selectedId={selected?.id}
               onSelect={setSelected}
             />
-            <OrderPanel
-              selected={selected}
-              uid={uid}
-              setUid={setUid}
-              qty={qty}
-              setQty={setQty}
-            />
+            <OrderPanel selected={selected} uid={uid} setUid={setUid} qty={qty} setQty={setQty} />
           </div>
 
           <div className="mt-8 space-y-6">
@@ -62,7 +61,6 @@ export default function HomePage() {
           </div>
         </main>
       </div>
-
       <Footer />
     </div>
   );

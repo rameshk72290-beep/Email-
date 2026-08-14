@@ -101,3 +101,108 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "LootBar Free Fire top-up page clone with editable packages, an owner-only admin panel (username 'freefire' / password 'rk212006'), and client Google login (Emergent managed) plus orders."
+
+backend:
+  - task: "GET /api/packages (public, seeds defaults)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Returns package list; seeds 8 defaults if empty."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - Endpoint returns 200 with 8 packages. Each package has correct structure (id, name, image, price, originalPrice, tag). Default seeding works correctly."
+  - task: "GET /api/settings (public, seeds default)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Returns store settings; seeds default if empty."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - Endpoint returns 200 with correct settings structure (productImage, title, rating, ratingCount, soldCount). Default seeding works correctly."
+  - task: "POST /api/admin/login + protected PUT packages/settings"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Login with freefire/rk212006 returns admin_token. PUT /admin/packages and /admin/settings require X-Admin-Token. Verify wrong creds -> 401, missing token -> 401, valid -> persists and reflects in GET."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - Admin login with correct credentials (freefire/rk212006) returns admin_token. Wrong credentials correctly return 401. PUT /admin/packages without token returns 401, with valid token updates and persists packages (verified via GET). PUT /admin/settings without token returns 401, with valid token updates and persists settings (verified via GET). All admin protection working correctly."
+  - task: "Client Google Auth session + /auth/me + logout"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "POST /auth/session exchanges real session_id via Emergent (cannot curl). Test /auth/me and orders using a mongosh-inserted user_sessions token (Bearer). See /app/auth_testing.md."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - GET /auth/me without token correctly returns 401. With invalid token correctly returns 401. With valid Bearer token (mongosh-inserted session) returns 200 with correct user data (user_id, email, name, picture). Auth protection working correctly."
+  - task: "Orders POST/GET (auth required)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "POST /orders and GET /orders/me require valid session. Test with Bearer token from inserted session."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASSED - POST /orders without auth correctly returns 401. With valid Bearer token creates order and returns correct structure (order_id, user_id, package_name, uid, quantity, total). GET /orders/me without auth correctly returns 401. With valid Bearer token returns list of orders. All order endpoints working correctly with proper auth protection."
+
+frontend:
+  - task: "Store page + Admin panel + Google login UI"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/HomePage.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Not yet frontend-tested; awaiting user permission."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    -agent: "main"
+    -message: "Please test all backend endpoints. Admin creds: username 'freefire', password 'rk212006'. For auth-gated endpoints (auth/me, orders), Google OAuth session cannot be created via curl; instead insert a user + user_sessions doc via mongosh (see /app/auth_testing.md) and use the session_token as Bearer. Verify admin protection (401 without/with wrong token). Verify GET packages/settings seed defaults."
+    -agent: "testing"
+    -message: "✅ ALL BACKEND TESTS PASSED (15/15). Comprehensive testing completed: (1) GET /api/packages - returns 8 packages with correct structure, seeding works. (2) GET /api/settings - returns settings with correct structure, seeding works. (3) POST /api/admin/login - correct credentials return token, wrong credentials return 401. (4) PUT /admin/packages - 401 without token, updates and persists with valid token. (5) PUT /admin/settings - 401 without token, updates and persists with valid token. (6) GET /auth/me - 401 without/invalid token, returns user data with valid Bearer token. (7) POST /orders - 401 without auth, creates order with valid auth. (8) GET /orders/me - 401 without auth, returns orders with valid auth. All endpoints working correctly. Default packages/settings restored after testing. Test user cleaned up. Backend is production-ready."

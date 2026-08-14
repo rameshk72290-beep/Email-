@@ -1,87 +1,234 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Header, Depends
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
 import uuid
-from datetime import datetime, timezone
-
+import httpx
+from pathlib import Path
+from pydantic import BaseModel, Field
+from typing import List, Optional
+from datetime import datetime, timezone, timedelta
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
-app = FastAPI()
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'freefire')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'rk212006')
+EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 
-# Create a router with the /api prefix
+app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
+# ---------------- Models ----------------
+class Package(BaseModel):
+    id: str
+    name: str
+    image: str
+    price: float
+    originalPrice: float
+    tag: Optional[str] = ""
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+class Settings(BaseModel):
+    productImage: str
+    title: str
+    rating: str
+    ratingCount: Optional[str] = ""
+    soldCount: str
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+class AdminLogin(BaseModel):
+    username: str
+    password: str
 
-# Add your routes to the router instead of directly to app
+class OrderCreate(BaseModel):
+    package_name: str
+    uid: str
+    quantity: int = 1
+    total: float
+
+# ---------------- Defaults (seed) ----------------
+DEFAULT_PACKAGES = [
+    {"id": "p1", "name": "EVO VAULT - one of the EVO Guns", "image": "https://img.lootbar.com/file/6a704cea477ed821a12c6eafKcFumR3d03?fop=imageView/2/w/340/h/340", "price": 11.25, "originalPrice": 12.5, "tag": "Hot"},
+    {"id": "p2", "name": "BOOYAH PASS 50 Level Package", "image": "https://img.lootbar.com/file/6846ac3a4103a2e741d4df29vLW0rcHG03?fop=imageView/2/w/340/h/340", "price": 6.17, "originalPrice": 6.85, "tag": ""},
+    {"id": "p3", "name": "100+10 Diamonds", "image": "https://img.lootbar.com/file/66dad2385bcd5dcccf249149UCmGWzPC03?fop=imageView/2/w/340/h/340", "price": 0.82, "originalPrice": 0.91, "tag": ""},
+    {"id": "p4", "name": "310+31 Diamonds", "image": "https://img.lootbar.com/file/66dad319243d93be37a0c68bsOGJhFpw03?fop=imageView/2/w/340/h/340", "price": 2.3, "originalPrice": 2.55, "tag": ""},
+    {"id": "p5", "name": "520+52 Diamonds", "image": "https://img.lootbar.com/file/66dad38a511befc0cea111c95pbxbPTi03?fop=imageView/2/w/340/h/340", "price": 3.87, "originalPrice": 4.3, "tag": "Popular"},
+    {"id": "p6", "name": "1060+106 Diamonds", "image": "https://img.lootbar.com/file/66dad3cce4fffe79f93965924i0X7hAw03?fop=imageView/2/w/340/h/340", "price": 7.38, "originalPrice": 8.2, "tag": ""},
+    {"id": "p7", "name": "2180+218 Diamonds", "image": "https://img.lootbar.com/file/66dad40d6d022e25d4932829egCbaMN703?fop=imageView/2/w/340/h/340", "price": 14.67, "originalPrice": 16.3, "tag": ""},
+    {"id": "p8", "name": "5600+560 Diamonds", "image": "https://img.lootbar.com/file/66dad44b8ce4cfd72a97ee68tMW0piBg03?fop=imageView/2/w/340/h/340", "price": 35.1, "originalPrice": 39.0, "tag": "Best Value"},
+]
+DEFAULT_SETTINGS = {
+    "_key": "main",
+    "productImage": "https://img.lootbar.com/file/6a3e1c094f9de0e50fdbb275k9gzzrFk03",
+    "title": "Free Fire Top Up",
+    "rating": "5.0",
+    "ratingCount": "40,068",
+    "soldCount": "100k+ Sold",
+}
+
+# ---------------- Auth helpers ----------------
+async def get_current_user(request: Request):
+    token = request.cookies.get("session_token")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    sess = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    if not sess:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    expires_at = sess["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+    user = await db.users.find_one({"user_id": sess["user_id"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+async def verify_admin(x_admin_token: Optional[str] = Header(None)):
+    if not x_admin_token:
+        raise HTTPException(status_code=401, detail="Admin token required")
+    sess = await db.admin_sessions.find_one({"admin_token": x_admin_token}, {"_id": 0})
+    if not sess:
+        raise HTTPException(status_code=401, detail="Invalid admin token")
+    exp = sess["expires_at"]
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Admin session expired")
+    return True
+
+# ---------------- Public routes ----------------
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "LootBar FF Clone API"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
+@api_router.get("/packages", response_model=List[Package])
+async def get_packages():
+    docs = await db.packages.find({}, {"_id": 0}).sort("order", 1).to_list(1000)
+    if not docs:
+        for i, p in enumerate(DEFAULT_PACKAGES):
+            await db.packages.insert_one({**p, "order": i})
+        docs = DEFAULT_PACKAGES
+    return [Package(**{k: d[k] for k in Package.model_fields}) for d in docs]
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@api_router.get("/settings", response_model=Settings)
+async def get_settings():
+    doc = await db.settings.find_one({"_key": "main"}, {"_id": 0})
+    if not doc:
+        await db.settings.insert_one(dict(DEFAULT_SETTINGS))
+        doc = DEFAULT_SETTINGS
+    return Settings(**{k: doc.get(k, "") for k in Settings.model_fields})
 
-# Include the router in the main app
+# ---------------- Admin routes ----------------
+@api_router.post("/admin/login")
+async def admin_login(body: AdminLogin):
+    if body.username != ADMIN_USERNAME or body.password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = f"admin_{uuid.uuid4().hex}"
+    await db.admin_sessions.insert_one({
+        "admin_token": token,
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+    })
+    return {"admin_token": token}
+
+@api_router.put("/admin/packages")
+async def update_packages(packages: List[Package], _: bool = Depends(verify_admin)):
+    await db.packages.delete_many({})
+    for i, p in enumerate(packages):
+        await db.packages.insert_one({**p.model_dump(), "order": i})
+    return {"status": "ok", "count": len(packages)}
+
+@api_router.put("/admin/settings")
+async def update_settings(settings: Settings, _: bool = Depends(verify_admin)):
+    await db.settings.update_one({"_key": "main"}, {"$set": {**settings.model_dump(), "_key": "main"}}, upsert=True)
+    return {"status": "ok"}
+
+# ---------------- Client Google Auth ----------------
+@api_router.post("/auth/session")
+async def auth_session(response: Response, x_session_id: Optional[str] = Header(None)):
+    if not x_session_id:
+        raise HTTPException(status_code=400, detail="X-Session-ID required")
+    async with httpx.AsyncClient() as hc:
+        r = await hc.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": x_session_id})
+    if r.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid session id")
+    data = r.json()
+    email = data["email"]
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        user_id = existing["user_id"]
+        await db.users.update_one({"user_id": user_id}, {"$set": {"name": data.get("name"), "picture": data.get("picture")}})
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({
+            "user_id": user_id, "email": email, "name": data.get("name"),
+            "picture": data.get("picture"), "created_at": datetime.now(timezone.utc),
+        })
+    session_token = data["session_token"]
+    await db.user_sessions.insert_one({
+        "user_id": user_id, "session_token": session_token,
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+        "created_at": datetime.now(timezone.utc),
+    })
+    response.set_cookie(key="session_token", value=session_token, httponly=True,
+                        secure=True, samesite="none", path="/", max_age=7*24*60*60)
+    return {"user_id": user_id, "email": email, "name": data.get("name"), "picture": data.get("picture")}
+
+@api_router.get("/auth/me")
+async def auth_me(user=Depends(get_current_user)):
+    return {"user_id": user["user_id"], "email": user["email"], "name": user.get("name"), "picture": user.get("picture")}
+
+@api_router.post("/auth/logout")
+async def auth_logout(request: Request, response: Response):
+    token = request.cookies.get("session_token")
+    if token:
+        await db.user_sessions.delete_many({"session_token": token})
+    response.delete_cookie("session_token", path="/")
+    return {"status": "ok"}
+
+# ---------------- Orders ----------------
+@api_router.post("/orders")
+async def create_order(body: OrderCreate, user=Depends(get_current_user)):
+    order = {
+        "order_id": f"ord_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "package_name": body.package_name, "uid": body.uid,
+        "quantity": body.quantity, "total": body.total,
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.orders.insert_one(dict(order))
+    order.pop("_id", None)
+    order["created_at"] = order["created_at"].isoformat()
+    return order
+
+@api_router.get("/orders/me")
+async def my_orders(user=Depends(get_current_user)):
+    docs = await db.orders.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    for d in docs:
+        if isinstance(d.get("created_at"), datetime):
+            d["created_at"] = d["created_at"].isoformat()
+    return docs
+
 app.include_router(api_router)
-
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
